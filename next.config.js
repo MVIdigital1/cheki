@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ["playwright-core", "@sparticuz/chromium"],
+    serverComponentsExternalPackages: ["playwright-core"],
   },
   webpack: (config) => {
     config.externals.push(

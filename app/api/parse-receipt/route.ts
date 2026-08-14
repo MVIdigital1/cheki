@@ -60,17 +60,16 @@ function parseItemsFromText(text: string): ParsedLine[] {
 }
 
 async function fetchOfdText(params: QrParams): Promise<string> {
-  const chromium = (await import("@sparticuz/chromium")).default;
   const { chromium: playwright } = await import("playwright-core");
 
-  chromium.setGraphicsMode = false;
+  const browserlessToken = process.env.BROWSERLESS_TOKEN;
+  if (!browserlessToken) {
+    throw new Error("BROWSERLESS_TOKEN не задан в переменных окружения");
+  }
 
-  const executablePath = await chromium.executablePath();
-  const browser = await playwright.launch({
-    args: chromium.args,
-    executablePath,
-    headless: true,
-  });
+  const browser = await playwright.connectOverCDP(
+    `wss://chrome.browserless.io?token=${browserlessToken}`
+  );
 
   try {
     const page = await browser.newPage();

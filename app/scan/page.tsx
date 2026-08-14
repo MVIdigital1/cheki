@@ -22,9 +22,20 @@ type ParseResult = {
   groupName: string | null;
   matchedQty: number;
   requiredQty: number | null;
+  bonusUnits: number;
   alreadyIssued: boolean;
+  alreadyIssuedUnits: number;
   alreadyScanned: boolean;
 };
+
+function pluralBonus(n: number): string {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "бонусов";
+  if (last === 1) return "бонус";
+  if (last >= 2 && last <= 4) return "бонуса";
+  return "бонусов";
+}
 
 export default function ScanPage() {
   const supabase = createClient();
@@ -215,18 +226,24 @@ export default function ScanPage() {
             </div>
 
             {result.bonusEligible && !result.alreadyIssued && !bonusIssued && (
-              <button
-                onClick={handleIssueBonus}
-                disabled={loading}
-                className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold disabled:opacity-50"
-              >
-                Выдать бонус
-              </button>
+              <>
+                <p className="rounded-lg border border-emerald-800 bg-emerald-950 p-3 text-center text-sm text-emerald-300">
+                  Вам положено {result.bonusUnits} {pluralBonus(result.bonusUnits)} (найдено {result.matchedQty} из {result.requiredQty} шт).
+                </p>
+                <button
+                  onClick={handleIssueBonus}
+                  disabled={loading}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold disabled:opacity-50"
+                >
+                  Выдать {result.bonusUnits} {pluralBonus(result.bonusUnits)}
+                </button>
+              </>
             )}
 
             {(result.alreadyIssued || bonusIssued) && (
               <p className="rounded-lg border border-emerald-800 bg-emerald-950 p-3 text-center text-sm text-emerald-300">
-                Бонус по этому чеку уже выдан ✓
+                Бонус по этому чеку уже выдан: {result.alreadyIssuedUnits || result.bonusUnits}{" "}
+                {pluralBonus(result.alreadyIssuedUnits || result.bonusUnits)} ✓
               </p>
             )}
 

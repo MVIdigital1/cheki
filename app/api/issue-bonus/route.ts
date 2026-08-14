@@ -29,11 +29,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyIssued: true });
   }
 
+  const { data: group } = await admin
+    .from("promo_groups")
+    .select("required_qty")
+    .eq("id", groupId)
+    .maybeSingle();
+
+  const requiredQty = group?.required_qty ?? 1;
+  const bonusUnits = requiredQty > 0 ? Math.max(1, Math.floor((matchedQty ?? 0) / requiredQty)) : 1;
+
   const { error } = await admin.from("bonuses").insert({
     receipt_id: receiptId,
     group_id: groupId,
     promoter_id: user.id,
     qty_matched: matchedQty ?? 0,
+    bonus_units: bonusUnits,
     status: "issued",
   });
 

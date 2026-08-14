@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   const { data: recentBonuses } = await supabase
     .from("bonuses")
     .select(
-      "id, created_at, qty_matched, receipts(store_name, sum), promo_products(name)"
+      "id, created_at, qty_matched, bonus_units, receipts(store_name, sum), promo_groups(name)"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -46,7 +46,7 @@ export default async function DashboardPage() {
             className="rounded-lg border border-gray-800 bg-gray-900 p-3 text-sm"
           >
             <div className="flex justify-between">
-              <span>{b.promo_products?.name ?? "—"}</span>
+              <span>{b.promo_groups?.name ?? "—"} · {b.bonus_units ?? 1} шт бонуса</span>
               <span className="text-gray-500">
                 {new Date(b.created_at).toLocaleString("ru-RU")}
               </span>

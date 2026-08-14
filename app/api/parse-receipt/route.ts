@@ -253,10 +253,15 @@ export async function POST(req: NextRequest) {
 
   const { data: existingBonus } = await admin
     .from("bonuses")
-    .select("id")
+    .select("id, bonus_units")
     .eq("receipt_id", receiptId)
     .eq("status", "issued")
     .maybeSingle();
+
+  const bonusUnits =
+    bestGroup && bestGroup.requiredQty > 0
+      ? Math.floor(bestGroup.matchedQty / bestGroup.requiredQty)
+      : 0;
 
   return NextResponse.json({
     receiptId,
@@ -275,7 +280,9 @@ export async function POST(req: NextRequest) {
     groupName: bestGroup ? bestGroup.groupName : null,
     matchedQty: bestGroup ? bestGroup.matchedQty : 0,
     requiredQty: bestGroup ? bestGroup.requiredQty : null,
+    bonusUnits,
     alreadyIssued: !!existingBonus,
+    alreadyIssuedUnits: existingBonus?.bonus_units ?? 0,
     alreadyScanned: !!existing,
   });
 }

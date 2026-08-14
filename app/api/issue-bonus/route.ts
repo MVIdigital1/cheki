@@ -11,9 +11,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  const { receiptId, groupId, matchedQty } = await req.json();
+  const { receiptId, groupId, matchedQty, phone } = await req.json();
   if (!receiptId || !groupId) {
     return NextResponse.json({ error: "Не хватает данных" }, { status: 400 });
+  }
+  const cleanPhone = typeof phone === "string" ? phone.trim() : "";
+  if (!cleanPhone) {
+    return NextResponse.json(
+      { error: "Укажите номер телефона покупателя" },
+      { status: 400 }
+    );
   }
 
   const admin = createAdminClient();
@@ -53,6 +60,11 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  await admin
+    .from("receipts")
+    .update({ customer_phone: cleanPhone })
+    .eq("id", receiptId);
 
   return NextResponse.json({ ok: true });
 }

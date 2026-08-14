@@ -162,13 +162,13 @@ export default function ScanPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
         <h1 className="text-lg font-semibold">Cheki — скан чека</h1>
         <div className="flex gap-3 text-sm">
-          <a href="/dashboard" className="text-indigo-400">
+          <a href="/dashboard" className="text-indigo-600">
             Статистика
           </a>
-          <button onClick={handleLogout} className="text-gray-400">
+          <button onClick={handleLogout} className="text-slate-500">
             Выйти
           </button>
         </div>
@@ -176,21 +176,21 @@ export default function ScanPage() {
 
       <main className="flex flex-1 flex-col items-center gap-4 p-4">
         {scanning && (
-          <div className="w-full max-w-sm overflow-hidden rounded-xl border border-gray-800">
+          <div className="w-full max-w-sm overflow-hidden rounded-xl border border-slate-200">
             <div id={containerId} className="w-full" />
           </div>
         )}
 
         {loading && (
-          <p className="text-sm text-gray-400">Проверяем чек в ОФД…</p>
+          <p className="text-sm text-slate-500">Проверяем чек в ОФД…</p>
         )}
 
         {error && (
-          <div className="w-full max-w-sm rounded-lg border border-red-800 bg-red-950 p-4 text-sm text-red-300">
+          <div className="w-full max-w-sm rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
             <button
               onClick={scanNext}
-              className="mt-3 block w-full rounded-lg bg-red-800 px-4 py-2 text-center text-sm"
+              className="mt-3 block w-full rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white"
             >
               Сканировать ещё раз
             </button>
@@ -199,13 +199,13 @@ export default function ScanPage() {
 
         {result && !error && (
           <div className="w-full max-w-sm space-y-4">
-            <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-              <p className="text-sm text-gray-400">{result.storeName}</p>
-              <p className="text-sm text-gray-400">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">{result.storeName}</p>
+              <p className="text-sm text-slate-500">
                 Сумма чека: {result.sum ?? "—"} ₸
               </p>
               {result.alreadyScanned && (
-                <p className="mt-2 text-sm text-amber-400">
+                <p className="mt-2 text-sm text-amber-600">
                   Этот чек уже был отсканирован ранее.
                 </p>
               )}
@@ -215,8 +215,8 @@ export default function ScanPage() {
                     key={idx}
                     className={
                       item.isPromo
-                        ? "font-medium text-indigo-300"
-                        : "text-gray-300"
+                        ? "font-medium text-indigo-700"
+                        : "text-slate-600"
                     }
                   >
                     {item.name} — {item.qty} шт
@@ -227,13 +227,13 @@ export default function ScanPage() {
 
             {result.bonusEligible && !result.alreadyIssued && !bonusIssued && (
               <>
-                <p className="rounded-lg border border-emerald-800 bg-emerald-950 p-3 text-center text-sm text-emerald-300">
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-sm text-emerald-700">
                   Вам положено {result.bonusUnits} {pluralBonus(result.bonusUnits)} (найдено {result.matchedQty} из {result.requiredQty} шт).
                 </p>
                 <button
                   onClick={handleIssueBonus}
                   disabled={loading}
-                  className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold disabled:opacity-50"
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold text-white disabled:opacity-50"
                 >
                   Выдать {result.bonusUnits} {pluralBonus(result.bonusUnits)}
                 </button>
@@ -241,14 +241,14 @@ export default function ScanPage() {
             )}
 
             {(result.alreadyIssued || bonusIssued) && (
-              <p className="rounded-lg border border-emerald-800 bg-emerald-950 p-3 text-center text-sm text-emerald-300">
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-sm text-emerald-700">
                 Бонус по этому чеку уже выдан: {result.alreadyIssuedUnits || result.bonusUnits}{" "}
                 {pluralBonus(result.alreadyIssuedUnits || result.bonusUnits)} ✓
               </p>
             )}
 
             {!result.bonusEligible && (
-              <p className="rounded-lg border border-gray-800 bg-gray-900 p-3 text-center text-sm text-gray-400">
+              <p className="rounded-lg border border-slate-200 bg-white p-3 text-center text-sm text-slate-500">
                 {result.groupName
                   ? `В чеке недостаточно товаров акции «${result.groupName}»: найдено ${result.matchedQty} из ${result.requiredQty} шт (учитывается любая комбинация видов).`
                   : "В чеке не найдено товаров акции."}
@@ -257,7 +257,7 @@ export default function ScanPage() {
 
             <button
               onClick={scanNext}
-              className="w-full rounded-lg border border-gray-700 px-4 py-3 text-sm"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm"
             >
               Сканировать следующий чек
             </button>

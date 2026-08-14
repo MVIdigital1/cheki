@@ -33,12 +33,12 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <h1 className="mb-1 text-center text-2xl font-semibold">Cheki</h1>
-        <p className="mb-8 text-center text-sm text-gray-400">
+        <p className="mb-8 text-center text-sm text-slate-500">
           Вход для промоутера
         </p>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
+            <label className="mb-1 block text-sm text-slate-500">
               E-mail
             </label>
             <input
@@ -46,12 +46,12 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-4 py-3 text-base outline-none focus:border-indigo-500"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
               placeholder="promoter@example.com"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
+            <label className="mb-1 block text-sm text-slate-500">
               Пароль
             </label>
             <input
@@ -59,20 +59,20 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-4 py-3 text-base outline-none focus:border-indigo-500"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
               placeholder="••••••••"
             />
           </div>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-base font-medium disabled:opacity-50"
+            className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-base font-medium text-white disabled:opacity-50"
           >
             {loading ? "Входим…" : "Войти"}
           </button>
         </form>
-        <p className="mt-6 text-center text-xs text-gray-500">
+        <p className="mt-6 text-center text-xs text-slate-400">
           Учётные записи промоутеров создаёт администратор в Supabase
           (Authentication → Users). Самостоятельная регистрация отключена.
         </p>

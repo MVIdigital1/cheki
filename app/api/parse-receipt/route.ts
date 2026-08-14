@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
   // Already scanned before?
   const { data: existing } = await admin
     .from("receipts")
-    .select("id, store_name, sum, fiscal_time")
+    .select("id, store_name, sum, fiscal_time, customer_phone")
     .eq("fiscal_sign", params.fiscalSign)
     .eq("rnm", params.rnm)
     .maybeSingle();
@@ -281,6 +281,7 @@ export async function POST(req: NextRequest) {
     matchedQty: bestGroup ? bestGroup.matchedQty : 0,
     requiredQty: bestGroup ? bestGroup.requiredQty : null,
     bonusUnits,
+    customerPhone: existing?.customer_phone ?? null,
     alreadyIssued: !!existingBonus,
     alreadyIssuedUnits: existingBonus?.bonus_units ?? 0,
     alreadyScanned: !!existing,

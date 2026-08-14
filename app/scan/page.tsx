@@ -23,6 +23,7 @@ type ParseResult = {
   matchedQty: number;
   requiredQty: number | null;
   bonusUnits: number;
+  customerPhone: string | null;
   alreadyIssued: boolean;
   alreadyIssuedUnits: number;
   alreadyScanned: boolean;
@@ -44,6 +45,7 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [bonusIssued, setBonusIssued] = useState(false);
+  const [phone, setPhone] = useState("");
   const scannerRef = useRef<any>(null);
   const containerId = "qr-reader";
 
@@ -80,6 +82,7 @@ export default function ScanPage() {
           setError(data.error || "Не удалось разобрать чек");
         } else {
           setResult(data);
+          setPhone(data.customerPhone || "");
         }
       } catch (e) {
         setError("Ошибка сети при обращении к серверу");
@@ -123,6 +126,10 @@ export default function ScanPage() {
 
   async function handleIssueBonus() {
     if (!result || !result.groupId) return;
+    if (!phone.trim()) {
+      setError("Укажите номер телефона покупателя");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -133,6 +140,7 @@ export default function ScanPage() {
           receiptId: result.receiptId,
           groupId: result.groupId,
           matchedQty: result.matchedQty,
+          phone: phone.trim(),
         }),
       });
       const data = await res.json();
@@ -152,6 +160,7 @@ export default function ScanPage() {
     setResult(null);
     setError(null);
     setBonusIssued(false);
+    setPhone("");
     setScanning(true);
   }
 
@@ -230,9 +239,22 @@ export default function ScanPage() {
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-sm text-emerald-700">
                   Вам положено {result.bonusUnits} {pluralBonus(result.bonusUnits)} (найдено {result.matchedQty} из {result.requiredQty} шт).
                 </p>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-500">
+                    Номер телефона покупателя
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+7 7__ ___ __ __"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
+                  />
+                </div>
                 <button
                   onClick={handleIssueBonus}
-                  disabled={loading}
+                  disabled={loading || !phone.trim()}
                   className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold text-white disabled:opacity-50"
                 >
                   Выдать {result.bonusUnits} {pluralBonus(result.bonusUnits)}

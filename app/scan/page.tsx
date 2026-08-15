@@ -29,6 +29,30 @@ type ParseResult = {
   alreadyScanned: boolean;
 };
 
+// Приводит ввод к 10 цифрам локальной части (без кода страны +7).
+function formatPhoneInput(raw: string): string {
+  let digits = raw.replace(/\D/g, "");
+  // Отображаемое значение всегда начинается с "+7", это даёт ведущую "7" в digits — убираем её.
+  if (digits.startsWith("7") || digits.startsWith("8")) {
+    digits = digits.slice(1);
+  }
+  return digits.slice(0, 10);
+}
+
+function formatPhoneDisplay(digits: string): string {
+  const parts = [
+    digits.slice(0, 3),
+    digits.slice(3, 6),
+    digits.slice(6, 8),
+    digits.slice(8, 10),
+  ].filter(Boolean);
+  return "+7 " + parts.join(" ");
+}
+
+function isValidPhone(digits: string): boolean {
+  return digits.length === 10;
+}
+
 function pluralBonus(n: number): string {
   const abs = Math.abs(n) % 100;
   const last = abs % 10;
@@ -82,7 +106,7 @@ export default function ScanPage() {
           setError(data.error || "Не удалось разобрать чек");
         } else {
           setResult(data);
-          setPhone(data.customerPhone || "");
+          setPhone(formatPhoneInput(data.customerPhone || ""));
         }
       } catch (e) {
         setError("Ошибка сети при обращении к серверу");
@@ -126,8 +150,8 @@ export default function ScanPage() {
 
   async function handleIssueBonus() {
     if (!result || !result.groupId) return;
-    if (!phone.trim()) {
-      setError("Укажите номер телефона покупателя");
+    if (!isValidPhone(phone)) {
+      setError("Введите номер телефона полностью: +7 и 10 цифр");
       return;
     }
     setLoading(true);
@@ -140,7 +164,7 @@ export default function ScanPage() {
           receiptId: result.receiptId,
           groupId: result.groupId,
           matchedQty: result.matchedQty,
-          phone: phone.trim(),
+          phone: "+7" + phone,
         }),
       });
       const data = await res.json();
@@ -245,16 +269,17 @@ export default function ScanPage() {
                   </label>
                   <input
                     type="tel"
+                    inputMode="numeric"
                     required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+7 7__ ___ __ __"
+                    value={formatPhoneDisplay(phone)}
+                    onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                    placeholder="+7 ___ ___ __ __"
                     className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
                   />
                 </div>
                 <button
                   onClick={handleIssueBonus}
-                  disabled={loading || !phone.trim()}
+                  disabled={loading || !isValidPhone(phone)}
                   className="w-full rounded-lg bg-emerald-600 px-4 py-4 text-lg font-semibold text-white disabled:opacity-50"
                 >
                   Выдать {result.bonusUnits} {pluralBonus(result.bonusUnits)}

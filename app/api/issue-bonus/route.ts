@@ -16,9 +16,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Не хватает данных" }, { status: 400 });
   }
   const cleanPhone = typeof phone === "string" ? phone.trim() : "";
-  if (!cleanPhone) {
+  if (!/^\+7\d{10}$/.test(cleanPhone)) {
     return NextResponse.json(
-      { error: "Укажите номер телефона покупателя" },
+      { error: "Номер телефона должен быть в формате +7 и 10 цифр" },
       { status: 400 }
     );
   }

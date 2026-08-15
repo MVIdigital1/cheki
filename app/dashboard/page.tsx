@@ -28,9 +28,14 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-slate-50 p-4">
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold">Статистика акции</h1>
-        <a href="/scan" className="text-sm text-indigo-600">
-          К сканеру
-        </a>
+        <div className="flex gap-3 text-sm">
+          <a href="/dashboard/report" className="text-indigo-600">
+            Отчёт
+          </a>
+          <a href="/scan" className="text-indigo-600">
+            К сканеру
+          </a>
+        </div>
       </header>
 
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">

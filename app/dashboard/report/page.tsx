@@ -111,7 +111,7 @@ export default async function ReportPage({
       </div>
 
       <div className="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:border-0 print:shadow-none">
-        <h1 className="text-center text-lg font-semibold">ТОО «Пятый элемент»</h1>
+        <h1 className="text-center text-lg font-semibold">ТОО «Пятый элемент KZ»</h1>
         <p className="text-center text-sm text-slate-500">
           Отчёт по промо-акции на дату {today}
         </p>

@@ -33,7 +33,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <h1 className="mb-1 text-center text-2xl font-semibold">
-          ТОО «Пятый элемент»
+          ТОО «Пятый элемент KZ»
         </h1>
         <p className="mb-8 text-center text-sm text-slate-500">
           Сканирование чеков промо акций

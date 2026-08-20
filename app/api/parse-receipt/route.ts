@@ -10,6 +10,7 @@ type QrParams = {
   rnm: string; // f
   sum: string; // s
   time: string; // t, format 20260812T102557
+  url: string; // исходная ссылка ОФД из QR — у разных операторов разные домены (oofd.kz, kofd.kz и т.д.)
 };
 
 function parseQr(qrRaw: string): QrParams | null {
@@ -22,7 +23,7 @@ function parseQr(qrRaw: string): QrParams | null {
     const s = url.searchParams.get("s");
     const t = url.searchParams.get("t");
     if (!i || !f) return null;
-    return { fiscalSign: i, rnm: f, sum: s ?? "", time: t ?? "" };
+    return { fiscalSign: i, rnm: f, sum: s ?? "", time: t ?? "", url: url.toString() };
   } catch {
     return null;
   }
@@ -73,11 +74,9 @@ async function fetchOfdText(params: QrParams): Promise<string> {
 
   try {
     const page = await browser.newPage();
-    const url = `https://consumer.oofd.kz/ru?i=${encodeURIComponent(
-      params.fiscalSign
-    )}&f=${encodeURIComponent(params.rnm)}&s=${encodeURIComponent(
-      params.sum
-    )}&t=${encodeURIComponent(params.time)}`;
+    // Открываем именно тот адрес ОФД, что зашит в QR чека — у разных
+    // операторов (Казахтелеком oofd.kz, Jusan Mobile kofd.kz и др.) разные домены.
+    const url = params.url;
 
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     // Angular SPA render — give it a moment beyond networkidle.

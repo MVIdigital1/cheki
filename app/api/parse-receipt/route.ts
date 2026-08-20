@@ -39,12 +39,19 @@ function toIso(t: string): string | null {
   return `${y}-${mo}-${d}T${h}:${mi}:${se}`;
 }
 
-type ParsedLine = { name: string; ntin: string | null; qty: number; price: number | null; sum: number | null };
+type ParsedLine = {
+  name: string;
+  ntin: string | null;
+  code: string | null; // любой найденный код товара (NTIN или штрихкод) — сверяется с promo_product_codes
+  qty: number;
+  price: number | null;
+  sum: number | null;
+};
 
 function parseItemsFromText(text: string): ParsedLine[] {
   const items: ParsedLine[] = [];
 
-  // Strategy 1: fiscal-document style blocks, e.g.
+  // Strategy 1: формат Казахтелеком ОФД (consumer.oofd.kz), напр.
   // "1. Полотенце бумажное ... NTIN:0200135188196 1 дана/шт x 550,00 Стоимость 550,00"
   const blockRe =
     /(\d+)\.\s+([\s\S]{3,300}?)(?:NTIN[:\s]*([0-9]{6,20}))?\s*(\d+(?:[.,]\d+)?)\s*(?:дана\/шт|шт|дана)\s*[x×]\s*([\d\s]+[.,]\d{2})/gi;
@@ -54,7 +61,21 @@ function parseItemsFromText(text: string): ParsedLine[] {
     const ntin = m[3] ?? null;
     const qty = parseFloat(m[4].replace(",", "."));
     const price = parseFloat(m[5].replace(/\s/g, "").replace(",", "."));
-    items.push({ name, ntin, qty, price, sum: null });
+    items.push({ name, ntin, code: ntin, qty, price, sum: null });
+  }
+
+  if (items.length > 0) return items;
+
+  // Strategy 2: формат других ОФД (напр. Jusan Mobile, consumer.kofd.kz), напр.
+  // "1. 4660105673859: Полотенце бумажное Пятый элемент 2сл 2рул ... =628.00"
+  // Код товара (штрихкод/NTIN) идёт сразу после номера позиции, количество часто не указано явно (по умолчанию 1).
+  const blockRe2 =
+    /(\d+)\.\s*(\d{6,20})\s*:\s*([\s\S]{3,300}?)\s*=\s*([\d\s]+[.,]\d{2})/g;
+  while ((m = blockRe2.exec(text)) !== null) {
+    const code = m[2];
+    const name = m[3].replace(/\s+/g, " ").trim();
+    const price = parseFloat(m[4].replace(/\s/g, "").replace(",", "."));
+    items.push({ name, ntin: null, code, qty: 1, price, sum: null });
   }
 
   return items;
@@ -138,6 +159,7 @@ export async function POST(req: NextRequest) {
     items = (existingItems ?? []).map((it) => ({
       name: it.name,
       ntin: it.ntin,
+      code: it.ntin,
       qty: Number(it.qty),
       price: it.price ? Number(it.price) : null,
       sum: it.sum ? Number(it.sum) : null,
@@ -191,6 +213,17 @@ export async function POST(req: NextRequest) {
     .select("id, name, ntin, match_pattern, group_id, promo_groups(id, name, required_qty)")
     .eq("is_active", true);
 
+  // Все известные коды (NTIN/GTIN) для акционных товаров — накапливаются по мере
+  // сканирования в разных магазинах, где на одном и том же товаре могут быть разные коды.
+  const { data: productCodes } = await admin
+    .from("promo_product_codes")
+    .select("code, product_id");
+  const codeToProductId = new Map<string, string>();
+  for (const c of productCodes ?? []) {
+    codeToProductId.set(c.code, c.product_id);
+  }
+  const promoProductsById = new Map((promoProducts ?? []).map((pp) => [pp.id, pp]));
+
   type GroupTally = { groupId: string; groupName: string; requiredQty: number; matchedQty: number; matchedProductId: string };
   const groupTallies = new Map<string, GroupTally>();
 
@@ -198,13 +231,39 @@ export async function POST(req: NextRequest) {
     let isPromo = false;
     let matchedProductId: string | null = null;
 
+    // 1) Сначала точное совпадение по коду товара (NTIN или штрихкод) — самый надёжный способ,
+    //    не зависит от того, как магазин подписал название на кассе.
+    const codeMatchId = it.code ? codeToProductId.get(it.code) : undefined;
+    if (codeMatchId && promoProductsById.has(codeMatchId)) {
+      const pp = promoProductsById.get(codeMatchId)!;
+      isPromo = true;
+      matchedProductId = pp.id;
+      const group: any = Array.isArray(pp.promo_groups) ? pp.promo_groups[0] : pp.promo_groups;
+      if (group) {
+        const existingTally = groupTallies.get(group.id);
+        if (existingTally) {
+          existingTally.matchedQty += it.qty;
+        } else {
+          groupTallies.set(group.id, {
+            groupId: group.id,
+            groupName: group.name,
+            requiredQty: group.required_qty,
+            matchedQty: it.qty,
+            matchedProductId: pp.id,
+          });
+        }
+      }
+      return { ...it, isPromo, matchedProductId };
+    }
+
+    // 2) Иначе — по названию (подстрока match_pattern), как подстраховка для новых магазинов,
+    //    коды которых мы ещё не зарегистрировали.
     for (const pp of promoProducts ?? []) {
-      const byNtin = pp.ntin && it.ntin && pp.ntin === it.ntin;
       const byName =
         it.name && pp.match_pattern
           ? it.name.toLowerCase().includes(pp.match_pattern.toLowerCase())
           : false;
-      if (byNtin || byName) {
+      if (byName) {
         isPromo = true;
         matchedProductId = pp.id;
         const group: any = Array.isArray(pp.promo_groups) ? pp.promo_groups[0] : pp.promo_groups;

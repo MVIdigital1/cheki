@@ -14,7 +14,7 @@ export default async function ReceiptDetailPage({
   const { data: receipt } = await supabase
     .from("receipts")
     .select(
-      "id, store_name, sum, fiscal_time, status, parse_error, created_at, customer_phone"
+      "id, store_name, sum, fiscal_time, status, parse_error, created_at, customer_phone, receipt_number, fiscal_sign"
     )
     .eq("id", id)
     .maybeSingle();
@@ -54,7 +54,7 @@ export default async function ReceiptDetailPage({
             : "—"}
         </p>
         <p className="mt-2 text-xs text-slate-400">
-          Статус: {receipt.status}
+          № чека: {receipt.receipt_number || receipt.fiscal_sign || "—"} · Статус: {receipt.status}
           {receipt.parse_error ? ` · ${receipt.parse_error}` : ""}
         </p>
         {receipt.customer_phone && (

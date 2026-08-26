@@ -22,7 +22,22 @@ export default async function DashboardPage() {
     .from("receipts")
     .select("id, store_name, sum, status, created_at")
     .order("created_at", { ascending: false })
-    .limit(30);
+    .limit(200);
+
+  // Группируем: магазин -> дата -> список чеков (для компактного отображения квадратиками).
+  type ReceiptRow = { id: string; store_name: string | null; sum: number | null; status: string; created_at: string };
+  const byStore = new Map<string, Map<string, ReceiptRow[]>>();
+  for (const r of (recentReceipts ?? []) as ReceiptRow[]) {
+    const store = r.store_name || "Магазин не определён";
+    const date = new Date(r.created_at).toLocaleDateString("ru-RU");
+    if (!byStore.has(store)) byStore.set(store, new Map());
+    const byDate = byStore.get(store)!;
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date)!.push(r);
+  }
+  const storeGroups = Array.from(byStore.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 p-4">
@@ -76,25 +91,43 @@ export default async function DashboardPage() {
       <h2 className="mb-3 text-sm font-medium text-slate-500">
         Все отсканированные чеки
       </h2>
-      <div className="space-y-2">
-        {(recentReceipts ?? []).map((r: any) => (
-          <a
-            key={r.id}
-            href={`/dashboard/receipts/${r.id}`}
-            className="block rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm transition hover:border-indigo-300"
-          >
-            <div className="flex justify-between">
-              <span>{r.store_name ?? "—"}</span>
-              <span className="text-slate-400">
-                {new Date(r.created_at).toLocaleString("ru-RU")}
-              </span>
+      <div className="space-y-6">
+        {storeGroups.map(([store, byDate]) => (
+          <div key={store}>
+            <h3 className="mb-2 text-sm font-semibold text-slate-700">{store}</h3>
+            <div className="space-y-3">
+              {Array.from(byDate.entries()).map(([date, receipts]) => (
+                <div key={date}>
+                  <p className="mb-1 text-xs text-slate-400">{date}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {receipts.map((r) => (
+                      <a
+                        key={r.id}
+                        href={`/dashboard/receipts/${r.id}`}
+                        title={`${r.sum ?? "—"} ₸ · ${r.status}`}
+                        className={
+                          "flex h-16 w-16 flex-col items-center justify-center rounded-lg border p-1 text-center text-[11px] shadow-sm transition hover:border-indigo-400 " +
+                          (r.status === "error"
+                            ? "border-red-200 bg-red-50 text-red-600"
+                            : "border-slate-200 bg-white text-slate-600")
+                        }
+                      >
+                        <span>
+                          {new Date(r.created_at).toLocaleTimeString("ru-RU", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <span className="font-medium">{r.sum ?? "—"}₸</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="text-slate-500">
-              чек на {r.sum ?? "—"} ₸ · статус: {r.status}
-            </div>
-          </a>
+          </div>
         ))}
-        {(!recentReceipts || recentReceipts.length === 0) && (
+        {storeGroups.length === 0 && (
           <p className="text-sm text-slate-400">Пока нет отсканированных чеков.</p>
         )}
       </div>

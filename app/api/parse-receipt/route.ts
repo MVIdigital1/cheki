@@ -29,6 +29,40 @@ function parseQr(qrRaw: string): QrParams | null {
   }
 }
 
+// Разные ОФД по-разному верстают страницу проверки чека. Пробуем несколько
+// стратегий по очереди, а не завязываемся на конкретные слова формы собственности.
+function extractStoreName(text: string): string | null {
+  // Стратегия A: Казахтелеком (consumer.oofd.kz) — название всегда идёт сразу
+  // после строки "FP <номер>" и перед адресом.
+  const mA = text.match(
+    /FP\s+\d+\s*\n\n([\s\S]{3,200}?)\n\n(?:обл\.|г\.|с\.|ЖСН|БСН|БИН)/
+  );
+  if (mA) {
+    const raw = mA[1].replace(/\s+/g, " ").trim();
+    const quoted = raw.match(/"([^"]{2,120})"/);
+    return quoted ? `ТОО "${quoted[1].trim()}"` : raw;
+  }
+
+  // Стратегия B: Jusan Mobile (consumer.kofd.kz) и похожие — ASCII-чек с
+  // центрированной строкой вида '   ТОО "СУПЕРМАРКЕТ "СОЛНЕЧНЫЙ""   '.
+  const mB = text.match(/^[ \t]*(ТОО|ИП|АО)[^\n]{0,150}/m);
+  if (mB) {
+    return mB[0]
+      .replace(/\s+/g, " ")
+      .replace(/"{2,}/g, '"')
+      .trim();
+  }
+
+  return null;
+}
+
+// Порядковый номер чека — есть не у всех ОФД (напр. у Jusan Mobile есть,
+// у Казахтелекома на странице проверки нет — тогда используем fiscal_sign).
+function extractReceiptNumber(text: string): string | null {
+  const m = text.match(/[Пп]орядковый номер чека\s+(\S+)/);
+  return m ? m[1] : null;
+}
+
 function toIso(t: string): string | null {
   // format: 20260812T102557
   const m = t.match(
@@ -139,7 +173,7 @@ export async function POST(req: NextRequest) {
   // Already scanned before?
   const { data: existing } = await admin
     .from("receipts")
-    .select("id, store_name, sum, fiscal_time, customer_phone")
+    .select("id, store_name, sum, fiscal_time, customer_phone, receipt_number")
     .eq("fiscal_sign", params.fiscalSign)
     .eq("rnm", params.rnm)
     .maybeSingle();
@@ -147,11 +181,13 @@ export async function POST(req: NextRequest) {
   let receiptId: string;
   let items: ParsedLine[] = [];
   let storeName: string | null = null;
+  let receiptNumber: string | null = null;
   let rawText = "";
 
   if (existing) {
     receiptId = existing.id;
     storeName = existing.store_name;
+    receiptNumber = existing.receipt_number;
     const { data: existingItems } = await admin
       .from("receipt_items")
       .select("name, ntin, qty, price, sum, promo_product_id")
@@ -176,8 +212,8 @@ export async function POST(req: NextRequest) {
 
     items = parseItemsFromText(rawText);
 
-    const storeMatch = rawText.match(/^(ТОО|ИП|АО)[^\n]{0,120}/m);
-    storeName = storeMatch ? storeMatch[0].trim() : null;
+    storeName = extractStoreName(rawText);
+    receiptNumber = extractReceiptNumber(rawText);
 
     const { data: inserted, error: insertErr } = await admin
       .from("receipts")
@@ -189,6 +225,7 @@ export async function POST(req: NextRequest) {
         fiscal_time: toIso(params.time),
         qr_raw: qrRaw,
         store_name: storeName,
+        receipt_number: receiptNumber,
         status: items.length > 0 ? "parsed" : "error",
         parse_error: items.length === 0 ? "Позиции не найдены в тексте ОФД" : null,
         raw_ofd_text: rawText.slice(0, 20000),
@@ -324,6 +361,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     receiptId,
     storeName,
+    receiptNumber,
+    fiscalSign: params.fiscalSign,
     sum: params.sum ? parseFloat(params.sum) : null,
     fiscalTime: toIso(params.time),
     items: annotatedItems.map((it) => ({

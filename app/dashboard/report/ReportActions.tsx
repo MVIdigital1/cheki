@@ -2,14 +2,26 @@
 
 type SoldRow = { name: string; qty: number };
 type BonusRow = { name: string; events: number; units: number };
+type DetailRow = {
+  n: number;
+  date: string;
+  store: string;
+  receiptNo: string;
+  phone: string;
+  groupName: string;
+  units: number;
+  promoterName: string;
+};
 
 export default function ReportActions({
   soldRows,
   bonusRows,
+  detailRows,
   promoterLabel,
 }: {
   soldRows: SoldRow[];
   bonusRows: BonusRow[];
+  detailRows: DetailRow[];
   promoterLabel: string;
 }) {
   function handlePrint() {
@@ -30,6 +42,14 @@ export default function ReportActions({
     lines.push("Акция;Чеков с бонусом;Бонусов, шт");
     for (const r of bonusRows) {
       lines.push(`${r.name};${r.events};${r.units}`);
+    }
+    lines.push("");
+    lines.push("Детализация по чекам с бонусом");
+    lines.push("№;Дата;Магазин;№ чека;Телефон;Промоутер;Бонусов, шт");
+    for (const r of detailRows) {
+      lines.push(
+        `${r.n};${r.date};${r.store};${r.receiptNo};${r.phone};${r.promoterName};${r.units}`
+      );
     }
 
     const csv = "﻿" + lines.join("\n");

@@ -76,11 +76,11 @@ export default async function ReportPage({
     }
   }
 
-  // Бонусов выдано по каждой акции (группе товаров).
+  // Бонусов выдано по каждой акции (группе товаров) + детализация по чекам.
   let bonusQuery = supabase
     .from("bonuses")
     .select(
-      "bonus_units, group_id, promo_groups(name), receipts!inner(store_name)"
+      "id, bonus_units, group_id, created_at, promo_groups(name), receipts!inner(store_name, fiscal_time, fiscal_sign, receipt_number, customer_phone, created_at), promoters(full_name)"
     )
     .eq("status", "issued");
   if (!showAll && user) {
@@ -95,6 +95,7 @@ export default async function ReportPage({
   if (dateTo) {
     bonusQuery = bonusQuery.lte("created_at", `${dateTo}T23:59:59`);
   }
+  bonusQuery = bonusQuery.order("created_at", { ascending: true });
   const { data: bonuses } = await bonusQuery;
 
   const bonusByGroup = new Map<string, { name: string; units: number; events: number }>();
@@ -120,6 +121,24 @@ export default async function ReportPage({
   const totalSold = soldRows.reduce((sum, r) => sum + r.qty, 0);
   const totalBonusUnits = bonusRows.reduce((sum, r) => sum + r.units, 0);
   const totalBonusEvents = bonusRows.reduce((sum, r) => sum + r.events, 0);
+
+  // Построчная детализация по каждому чеку с бонусом — для приложения к приказу.
+  const detailRows = (bonuses ?? []).map((b: any, idx: number) => {
+    const receipt = Array.isArray(b.receipts) ? b.receipts[0] : b.receipts;
+    const group = Array.isArray(b.promo_groups) ? b.promo_groups[0] : b.promo_groups;
+    const promoterRow = Array.isArray(b.promoters) ? b.promoters[0] : b.promoters;
+    const dateVal = receipt?.fiscal_time || receipt?.created_at;
+    return {
+      n: idx + 1,
+      date: dateVal ? new Date(dateVal).toLocaleString("ru-RU") : "—",
+      store: receipt?.store_name || "—",
+      receiptNo: receipt?.receipt_number || receipt?.fiscal_sign || "—",
+      phone: receipt?.customer_phone || "—",
+      groupName: group?.name || "—",
+      units: b.bonus_units ?? 0,
+      promoterName: promoterRow?.full_name || "",
+    };
+  });
 
   const today = new Date().toLocaleDateString("ru-RU");
   const periodLabel =
@@ -151,6 +170,7 @@ export default async function ReportPage({
         <ReportActions
           soldRows={soldRows}
           bonusRows={bonusRows}
+          detailRows={detailRows}
           promoterLabel={promoterLabel}
         />
       </div>
@@ -289,6 +309,43 @@ export default async function ReportPage({
               <td className="py-2 text-right">{totalBonusUnits}</td>
             </tr>
           </tfoot>
+        </table>
+
+        <h2 className="mb-2 text-sm font-medium text-slate-600">
+          Детализация по чекам с бонусом
+        </h2>
+        <table className="mb-6 w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-slate-300 text-left">
+              <th className="py-2 pr-2">№</th>
+              <th className="py-2 pr-2">Дата</th>
+              <th className="py-2 pr-2">Магазин</th>
+              <th className="py-2 pr-2">№ чека</th>
+              <th className="py-2 pr-2">Телефон</th>
+              {showAll && <th className="py-2 pr-2">Промоутер</th>}
+              <th className="py-2 text-right">Бонусов, шт</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detailRows.map((r) => (
+              <tr key={r.n} className="border-b border-slate-100">
+                <td className="py-1.5 pr-2">{r.n}</td>
+                <td className="py-1.5 pr-2">{r.date}</td>
+                <td className="py-1.5 pr-2">{r.store}</td>
+                <td className="py-1.5 pr-2">{r.receiptNo}</td>
+                <td className="py-1.5 pr-2">{r.phone}</td>
+                {showAll && <td className="py-1.5 pr-2">{r.promoterName}</td>}
+                <td className="py-1.5 text-right">{r.units}</td>
+              </tr>
+            ))}
+            {detailRows.length === 0 && (
+              <tr>
+                <td colSpan={showAll ? 7 : 6} className="py-3 text-center text-slate-400">
+                  Пока нет данных
+                </td>
+              </tr>
+            )}
+          </tbody>
         </table>
 
         <div className="mt-10 grid grid-cols-2 gap-8 text-sm">

@@ -195,14 +195,14 @@ export default function ScanPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+      <header className="border-b border-slate-200 bg-white px-4 py-3">
         <div>
-          <h1 className="text-base font-semibold leading-tight">
+          <h1 className="whitespace-nowrap text-sm font-semibold leading-tight sm:text-base">
             ТОО «Пятый элемент KZ»
           </h1>
           <p className="text-xs text-slate-500">Сканирование чеков промо акций</p>
         </div>
-        <div className="flex gap-3 text-sm">
+        <div className="mt-2 flex gap-3 text-sm">
           <a href="/dashboard" className="text-indigo-600">
             Статистика
           </a>

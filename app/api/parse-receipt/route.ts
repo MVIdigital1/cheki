@@ -133,11 +133,19 @@ async function fetchOfdText(params: QrParams): Promise<string> {
     // операторов (Казахтелеком oofd.kz, Jusan Mobile kofd.kz и др.) разные домены.
     const url = params.url;
 
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-    // Angular SPA render — give it a moment beyond networkidle.
-    await page.waitForTimeout(2500);
+    // networkidle часто не наступает на этих сайтах (фоновые запросы/аналитика
+    // не дают сети "успокоиться"), из-за чего page.goto стабильно падает по
+    // таймауту 30с. domcontentloaded надёжнее — дальше ждём появления текста
+    // чека явным поллингом, а не фиксированной паузой.
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    const text = await page.evaluate(() => document.body.innerText);
+    let text = "";
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      text = await page.evaluate(() => document.body.innerText);
+      if (text.trim().length > 100) break;
+      await page.waitForTimeout(500);
+    }
     return text;
   } finally {
     await browser.close();

@@ -181,10 +181,15 @@ export async function POST(req: NextRequest) {
   // Already scanned before?
   const { data: existing } = await admin
     .from("receipts")
-    .select("id, store_name, sum, fiscal_time, customer_phone, receipt_number")
+    .select("id, store_name, sum, fiscal_time, customer_phone, receipt_number, status")
     .eq("fiscal_sign", params.fiscalSign)
     .eq("rnm", params.rnm)
     .maybeSingle();
+
+  // Успешно распознанный раньше чек — просто переиспользуем сохранённые позиции.
+  // Если в прошлый раз была ошибка (0 позиций), пробуем загрузить заново, а не
+  // возвращаем тот же пустой результат навсегда.
+  const useCached = !!existing && existing.status === "parsed";
 
   let receiptId: string;
   let items: ParsedLine[] = [];
@@ -192,10 +197,10 @@ export async function POST(req: NextRequest) {
   let receiptNumber: string | null = null;
   let rawText = "";
 
-  if (existing) {
-    receiptId = existing.id;
-    storeName = existing.store_name;
-    receiptNumber = existing.receipt_number;
+  if (useCached) {
+    receiptId = existing!.id;
+    storeName = existing!.store_name;
+    receiptNumber = existing!.receipt_number;
     const { data: existingItems } = await admin
       .from("receipt_items")
       .select("name, ntin, qty, price, sum, promo_product_id")
@@ -223,31 +228,50 @@ export async function POST(req: NextRequest) {
     storeName = extractStoreName(rawText);
     receiptNumber = extractReceiptNumber(rawText);
 
-    const { data: inserted, error: insertErr } = await admin
-      .from("receipts")
-      .insert({
-        promoter_id: user.id,
-        fiscal_sign: params.fiscalSign,
-        rnm: params.rnm,
-        sum: params.sum ? parseFloat(params.sum) : null,
-        fiscal_time: toIso(params.time),
-        qr_raw: qrRaw,
-        store_name: storeName,
-        receipt_number: receiptNumber,
-        status: items.length > 0 ? "parsed" : "error",
-        parse_error: items.length === 0 ? "Позиции не найдены в тексте ОФД" : null,
-        raw_ofd_text: rawText.slice(0, 20000),
-      })
-      .select("id")
-      .single();
+    const payload = {
+      promoter_id: user.id,
+      fiscal_sign: params.fiscalSign,
+      rnm: params.rnm,
+      sum: params.sum ? parseFloat(params.sum) : null,
+      fiscal_time: toIso(params.time),
+      qr_raw: qrRaw,
+      store_name: storeName,
+      receipt_number: receiptNumber,
+      status: items.length > 0 ? "parsed" : "error",
+      parse_error: items.length === 0 ? "Позиции не найдены в тексте ОФД" : null,
+      raw_ofd_text: rawText.slice(0, 20000),
+    };
 
-    if (insertErr || !inserted) {
-      return NextResponse.json(
-        { error: "Ошибка записи чека в базу: " + insertErr?.message },
-        { status: 500 }
-      );
+    if (existing) {
+      // Повторная попытка: обновляем ранее неудачную запись вместо создания дубля.
+      const { error: updateErr } = await admin
+        .from("receipts")
+        .update(payload)
+        .eq("id", existing.id);
+      if (updateErr) {
+        return NextResponse.json(
+          { error: "Ошибка обновления чека в базе: " + updateErr.message },
+          { status: 500 }
+        );
+      }
+      receiptId = existing.id;
+      // На случай если при прошлой (неудачной) попытке что-то всё же записалось.
+      await admin.from("receipt_items").delete().eq("receipt_id", receiptId);
+    } else {
+      const { data: inserted, error: insertErr } = await admin
+        .from("receipts")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (insertErr || !inserted) {
+        return NextResponse.json(
+          { error: "Ошибка записи чека в базу: " + insertErr?.message },
+          { status: 500 }
+        );
+      }
+      receiptId = inserted.id;
     }
-    receiptId = inserted.id;
   }
 
   // Load active promo products (with their group) to match against.
@@ -339,8 +363,9 @@ export async function POST(req: NextRequest) {
   const bestGroup = eligibleGroup ?? groupTallies.values().next().value ?? null;
   const bonusEligible = !!eligibleGroup;
 
-  // Persist matched items (only if newly parsed, i.e. table was empty for this receipt).
-  if (!existing && annotatedItems.length > 0) {
+  // Persist matched items (только если реально сходили за новым текстом чека —
+  // при useCached позиции уже есть в базе и пересохранять их не нужно).
+  if (!useCached && annotatedItems.length > 0) {
     await admin.from("receipt_items").insert(
       annotatedItems.map((it) => ({
         receipt_id: receiptId,
@@ -389,6 +414,6 @@ export async function POST(req: NextRequest) {
     customerPhone: existing?.customer_phone ?? null,
     alreadyIssued: !!existingBonus,
     alreadyIssuedUnits: existingBonus?.bonus_units ?? 0,
-    alreadyScanned: !!existing,
+    alreadyScanned: useCached,
   });
 }

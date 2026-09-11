@@ -143,7 +143,18 @@ async function fetchOfdText(params: QrParams): Promise<string> {
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
       text = await page.evaluate(() => document.body.innerText);
-      if (text.trim().length > 100) break;
+      const trimmed = text.trim();
+      // Страница проверки чека сначала рендерит только форму-заглушку
+      // ("Дата покупки / Время покупки / ... / Проверить чек", ~226 символов) —
+      // это тоже >100 символов, из-за чего поллинг раньше завершался слишком рано,
+      // не дождавшись, пока Angular-приложение подставит и отрисует сам чек.
+      // Ждём явных маркеров реального содержимого чека, а не просто длины текста.
+      const hasRealContent =
+        trimmed.includes("FP ") ||
+        trimmed.includes("Fiscal receipt preview") ||
+        trimmed.includes("Порядковый номер чека") ||
+        trimmed.length > 400;
+      if (hasRealContent) break;
       await page.waitForTimeout(500);
     }
     return text;

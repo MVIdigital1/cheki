@@ -85,8 +85,48 @@ type ParsedLine = {
 function parseItemsFromText(text: string): ParsedLine[] {
   const items: ParsedLine[] = [];
 
-  // Strategy 1: формат Казахтелеком ОФД (consumer.oofd.kz), напр.
-  // "1. Полотенце бумажное ... NTIN:0200135188196 1 дана/шт x 550,00 Стоимость 550,00"
+  // Strategy 1: новый формат Казахтелеком ОФД (consumer.oofd.kz, React-версия сайта) —
+  // каждая позиция начинается с "N.\n\n" и дальше поля (название/NTIN/XTIN/количество)
+  // идут каждое на отдельной строке. Между кодом товара и итоговым количеством может
+  // встретиться произвольное число строк скидок ("Жеңілдік/Скидка ... ₸"), поэтому не
+  // завязываемся на соседство полей — режем текст на блоки по маркерам позиций и внутри
+  // каждого блока ищем название/код/количество независимо друг от друга.
+  const itemStartRe = /(?:^|\n)(\d{1,3})\.\s*\n+/g;
+  const starts: number[] = [];
+  let sm: RegExpExecArray | null;
+  while ((sm = itemStartRe.exec(text)) !== null) {
+    starts.push(sm.index + sm[0].length);
+  }
+
+  for (let i = 0; i < starts.length; i++) {
+    const blockStart = starts[i];
+    const blockEnd = i + 1 < starts.length ? starts[i + 1] : text.length;
+    const block = text.slice(blockStart, blockEnd);
+
+    const qtyMatch = block.match(
+      /(\d+(?:[.,]\d+)?)\s*(?:дана\/шт|шт|кг|дана)\s*[x×]\s*([\d\s]+[.,]\d{2})/i
+    );
+    if (!qtyMatch) continue; // похоже, это не товарная позиция (или формат не распознан)
+
+    const codeMatch = block.match(/(?:NTIN|XTIN)\s+([0-9]{6,20})/i);
+
+    const labelRe = /(?:NTIN|XTIN)\b|\d+(?:[.,]\d+)?\s*(?:дана\/шт|шт|кг|дана)\s*[x×]/i;
+    const nameEndIdx = block.search(labelRe);
+    const name = block
+      .slice(0, nameEndIdx > 0 ? nameEndIdx : block.length)
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const code = codeMatch ? codeMatch[1] : null;
+    const qty = parseFloat(qtyMatch[1].replace(",", "."));
+    const price = parseFloat(qtyMatch[2].replace(/\s/g, "").replace(",", "."));
+    items.push({ name, ntin: code, code, qty, price, sum: null });
+  }
+
+  if (items.length > 0) return items;
+
+  // Strategy 1b: старый однострочный формат Казахтелеком (на случай если сайт снова
+  // изменится или откатится) — "1. Полотенце бумажное ... NTIN:0200135188196 1 дана/шт x 550,00".
   const blockRe =
     /(\d+)\.\s+([\s\S]{3,300}?)(?:NTIN[:\s]*([0-9]{6,20}))?\s*(\d+(?:[.,]\d+)?)\s*(?:дана\/шт|шт|дана)\s*[x×]\s*([\d\s]+[.,]\d{2})/gi;
   let m: RegExpExecArray | null;

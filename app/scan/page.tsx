@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type ParsedItem = {
@@ -62,96 +62,66 @@ function pluralBonus(n: number): string {
   return "бонусов";
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ScanPage() {
   const supabase = createClient();
-  const [scanning, setScanning] = useState(true);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [bonusIssued, setBonusIssued] = useState(false);
   const [phone, setPhone] = useState("");
-  const [lastQrRaw, setLastQrRaw] = useState<string | null>(null);
-  const [manualQtyInput, setManualQtyInput] = useState("");
-  const [manualLoading, setManualLoading] = useState(false);
-  const scannerRef = useRef<any>(null);
-  const containerId = "qr-reader";
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch {
-        // already stopped
-      }
-      scannerRef.current = null;
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPhotos((prev) => [...prev, dataUrl]);
+    } catch {
+      setError("Не удалось прочитать фото");
     }
-  }, []);
+  }
 
-  const handleDecoded = useCallback(
-    async (decodedText: string) => {
-      if (!scanning) return;
-      setScanning(false);
-      await stopScanner();
-      setLoading(true);
-      setError(null);
-      setResult(null);
-      setBonusIssued(false);
-      setLastQrRaw(decodedText);
-      setManualQtyInput("");
+  function removePhoto(idx: number) {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  }
 
-      try {
-        const res = await fetch("/api/parse-receipt", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ qrRaw: decodedText }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error || "Не удалось разобрать чек");
-        } else {
-          setResult(data);
-          setPhone(formatPhoneInput(data.customerPhone || ""));
-        }
-      } catch (e) {
-        setError("Ошибка сети при обращении к серверу");
-      } finally {
-        setLoading(false);
+  async function handleAnalyze() {
+    if (photos.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setBonusIssued(false);
+    try {
+      const res = await fetch("/api/parse-receipt-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images: photos }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Не удалось распознать чек");
+      } else {
+        setResult(data);
+        setPhone(formatPhoneInput(data.customerPhone || ""));
       }
-    },
-    [scanning, stopScanner]
-  );
-
-  useEffect(() => {
-    if (!scanning) return;
-    let cancelled = false;
-
-    import("html5-qrcode").then(({ Html5Qrcode }) => {
-      if (cancelled) return;
-      const scanner = new Html5Qrcode(containerId);
-      scannerRef.current = scanner;
-      scanner
-        .start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 260, height: 260 } },
-          (decodedText: string) => {
-            handleDecoded(decodedText);
-          },
-          () => {
-            // ignore per-frame decode failures
-          }
-        )
-        .catch((err: unknown) => {
-          setError("Не удалось получить доступ к камере: " + String(err));
-        });
-    });
-
-    return () => {
-      cancelled = true;
-      stopScanner();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanning]);
+    } catch {
+      setError("Ошибка сети при обращении к серверу");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleIssueBonus() {
     if (!result || !result.groupId) return;
@@ -185,46 +155,20 @@ export default function ScanPage() {
     }
   }
 
-  async function handleManualEntry() {
-    const qty = parseInt(manualQtyInput, 10);
-    if (!lastQrRaw || !qty || qty <= 0) {
-      setError("Укажите количество полотенец (число больше 0)");
-      return;
-    }
-    setManualLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/parse-receipt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ qrRaw: lastQrRaw, manualQty: qty }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Не удалось сохранить чек");
-      } else {
-        setResult(data);
-        setPhone(formatPhoneInput(data.customerPhone || ""));
-      }
-    } catch {
-      setError("Ошибка сети при обращении к серверу");
-    } finally {
-      setManualLoading(false);
-    }
-  }
-
   function scanNext() {
+    setPhotos([]);
     setResult(null);
     setError(null);
     setBonusIssued(false);
     setPhone("");
-    setScanning(true);
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
+
+  const showCapture = !result && !loading;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -233,7 +177,7 @@ export default function ScanPage() {
           <h1 className="whitespace-nowrap text-sm font-semibold leading-tight sm:text-base">
             ТОО «Пятый элемент KZ»
           </h1>
-          <p className="text-xs text-slate-500">Сканирование чеков промо акций</p>
+          <p className="text-xs text-slate-500">Фотографирование чеков промо акций</p>
         </div>
         <div className="mt-2 flex gap-3 text-sm">
           <a href="/dashboard" className="text-indigo-600">
@@ -249,63 +193,67 @@ export default function ScanPage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center gap-4 p-4">
-        {scanning && (
-          <div className="w-full max-w-sm overflow-hidden rounded-xl border border-slate-200">
-            <div id={containerId} className="w-full" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {showCapture && (
+          <div className="w-full max-w-sm space-y-3">
+            <p className="text-sm text-slate-500">
+              Сфотографируйте чек. Если он длинный — сделайте несколько фото по частям, чтобы
+              каждая позиция была чётко видна.
+            </p>
+
+            {photos.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {photos.map((p, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={p} alt={`Фото ${idx + 1}`} className="h-24 w-full rounded-lg object-cover" />
+                    <button
+                      onClick={() => removePhoto(idx)}
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full rounded-lg border border-indigo-300 px-4 py-3 text-sm font-medium text-indigo-700"
+            >
+              {photos.length === 0 ? "Сфотографировать чек" : "Добавить ещё фото"}
+            </button>
+
+            {photos.length > 0 && (
+              <button
+                onClick={handleAnalyze}
+                className="w-full rounded-lg bg-indigo-600 px-4 py-4 text-lg font-semibold text-white"
+              >
+                Распознать чек ({photos.length} фото)
+              </button>
+            )}
           </div>
         )}
 
-        {loading && (
-          <p className="text-sm text-slate-500">Проверяем чек в ОФД…</p>
-        )}
+        {loading && <p className="text-sm text-slate-500">Распознаём чек…</p>}
 
         {error && (
-          <div className="w-full max-w-sm space-y-3">
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {error}
-              <button
-                onClick={scanNext}
-                className="mt-3 block w-full rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white"
-              >
-                Сканировать ещё раз
-              </button>
-            </div>
-
-            {lastQrRaw && (
-              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
-                <p className="mb-2 text-slate-600">
-                  Не получилось проверить автоматически (сайт ОФД показывает капчу). Откройте чек
-                  сами, пройдите капчу и посмотрите, есть ли полотенца «Пятый элемент»:
-                </p>
-                <a
-                  href={lastQrRaw}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mb-3 block w-full rounded-lg border border-indigo-300 px-4 py-2 text-center text-indigo-700"
-                >
-                  Открыть чек в браузере
-                </a>
-                <label className="mb-1 block text-slate-500">
-                  Сколько штук полотенец в чеке? (0, если нет)
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  value={manualQtyInput}
-                  onChange={(e) => setManualQtyInput(e.target.value)}
-                  placeholder="0"
-                  className="mb-2 w-full rounded-lg border border-slate-300 px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
-                />
-                <button
-                  onClick={handleManualEntry}
-                  disabled={manualLoading || !manualQtyInput}
-                  className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {manualLoading ? "Сохраняем…" : "Указать вручную"}
-                </button>
-              </div>
-            )}
+          <div className="w-full max-w-sm rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+            <button
+              onClick={scanNext}
+              className="mt-3 block w-full rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white"
+            >
+              Начать заново
+            </button>
           </div>
         )}
 
@@ -385,7 +333,7 @@ export default function ScanPage() {
               onClick={scanNext}
               className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm"
             >
-              Сканировать следующий чек
+              Сфотографировать следующий чек
             </button>
           </div>
         )}

@@ -70,6 +70,9 @@ export default function ScanPage() {
   const [result, setResult] = useState<ParseResult | null>(null);
   const [bonusIssued, setBonusIssued] = useState(false);
   const [phone, setPhone] = useState("");
+  const [lastQrRaw, setLastQrRaw] = useState<string | null>(null);
+  const [manualQtyInput, setManualQtyInput] = useState("");
+  const [manualLoading, setManualLoading] = useState(false);
   const scannerRef = useRef<any>(null);
   const containerId = "qr-reader";
 
@@ -94,6 +97,8 @@ export default function ScanPage() {
       setError(null);
       setResult(null);
       setBonusIssued(false);
+      setLastQrRaw(decodedText);
+      setManualQtyInput("");
 
       try {
         const res = await fetch("/api/parse-receipt", {
@@ -180,6 +185,34 @@ export default function ScanPage() {
     }
   }
 
+  async function handleManualEntry() {
+    const qty = parseInt(manualQtyInput, 10);
+    if (!lastQrRaw || !qty || qty <= 0) {
+      setError("Укажите количество полотенец (число больше 0)");
+      return;
+    }
+    setManualLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/parse-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qrRaw: lastQrRaw, manualQty: qty }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Не удалось сохранить чек");
+      } else {
+        setResult(data);
+        setPhone(formatPhoneInput(data.customerPhone || ""));
+      }
+    } catch {
+      setError("Ошибка сети при обращении к серверу");
+    } finally {
+      setManualLoading(false);
+    }
+  }
+
   function scanNext() {
     setResult(null);
     setError(null);
@@ -227,14 +260,52 @@ export default function ScanPage() {
         )}
 
         {error && (
-          <div className="w-full max-w-sm rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-            <button
-              onClick={scanNext}
-              className="mt-3 block w-full rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white"
-            >
-              Сканировать ещё раз
-            </button>
+          <div className="w-full max-w-sm space-y-3">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+              <button
+                onClick={scanNext}
+                className="mt-3 block w-full rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white"
+              >
+                Сканировать ещё раз
+              </button>
+            </div>
+
+            {lastQrRaw && (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+                <p className="mb-2 text-slate-600">
+                  Не получилось проверить автоматически (сайт ОФД показывает капчу). Откройте чек
+                  сами, пройдите капчу и посмотрите, есть ли полотенца «Пятый элемент»:
+                </p>
+                <a
+                  href={lastQrRaw}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mb-3 block w-full rounded-lg border border-indigo-300 px-4 py-2 text-center text-indigo-700"
+                >
+                  Открыть чек в браузере
+                </a>
+                <label className="mb-1 block text-slate-500">
+                  Сколько штук полотенец в чеке? (0, если нет)
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={manualQtyInput}
+                  onChange={(e) => setManualQtyInput(e.target.value)}
+                  placeholder="0"
+                  className="mb-2 w-full rounded-lg border border-slate-300 px-4 py-3 text-base text-slate-900 outline-none focus:border-indigo-500"
+                />
+                <button
+                  onClick={handleManualEntry}
+                  disabled={manualLoading || !manualQtyInput}
+                  className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {manualLoading ? "Сохраняем…" : "Указать вручную"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -242,6 +242,11 @@ export async function POST(req: NextRequest) {
   if (!qrRaw) {
     return NextResponse.json({ error: "Пустой QR" }, { status: 400 });
   }
+  // Ручной ввод: если сайт ОФД показал капчу промоутеру и авто-проверка не проходит,
+  // промоутер сам смотрит на открытый им же чек и вводит количество товара акции —
+  // никакого скрапинга в этом случае не делаем, просто считаем бонус по этому числу.
+  const manualQty: number | null =
+    typeof body.manualQty === "number" && body.manualQty > 0 ? body.manualQty : null;
 
   const params = parseQr(qrRaw);
   if (!params) {
@@ -288,6 +293,65 @@ export async function POST(req: NextRequest) {
       price: it.price ? Number(it.price) : null,
       sum: it.sum ? Number(it.sum) : null,
     }));
+  } else if (manualQty !== null) {
+    // Промоутер сам открыл чек по ссылке, прошёл капчу и посмотрел на позиции глазами —
+    // просто фиксируем указанное им количество товара акции как одну позицию.
+    // Название специально совпадает с шаблоном сопоставления товара акции
+    // (match_pattern), чтобы позиция сопоставилась так же, как при авто-разборе.
+    items = [
+      {
+        name: `Полотенце бумажное "Пятый элемент" (${manualQty} шт, введено вручную промоутером)`,
+        ntin: null,
+        code: null,
+        qty: manualQty,
+        price: null,
+        sum: null,
+      },
+    ];
+    storeName = existing?.store_name ?? null;
+    receiptNumber = existing?.receipt_number ?? null;
+
+    const payload = {
+      promoter_id: user.id,
+      fiscal_sign: params.fiscalSign,
+      rnm: params.rnm,
+      sum: params.sum ? parseFloat(params.sum) : null,
+      fiscal_time: toIso(params.time),
+      qr_raw: qrRaw,
+      store_name: storeName,
+      receipt_number: receiptNumber,
+      status: "parsed",
+      parse_error: "Количество введено вручную промоутером (капча ОФД)",
+      raw_ofd_text: existing ? undefined : null,
+    };
+
+    if (existing) {
+      const { error: updateErr } = await admin
+        .from("receipts")
+        .update(payload)
+        .eq("id", existing.id);
+      if (updateErr) {
+        return NextResponse.json(
+          { error: "Ошибка обновления чека в базе: " + updateErr.message },
+          { status: 500 }
+        );
+      }
+      receiptId = existing.id;
+      await admin.from("receipt_items").delete().eq("receipt_id", receiptId);
+    } else {
+      const { data: inserted, error: insertErr } = await admin
+        .from("receipts")
+        .insert(payload)
+        .select("id")
+        .single();
+      if (insertErr || !inserted) {
+        return NextResponse.json(
+          { error: "Ошибка записи чека в базу: " + insertErr?.message },
+          { status: 500 }
+        );
+      }
+      receiptId = inserted.id;
+    }
   } else {
     try {
       rawText = await fetchOfdText(params);

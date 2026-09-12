@@ -52,6 +52,72 @@ function extractJson(text: string): any {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
+function parseVisionJson(text: string): VisionResult {
+  const parsed = extractJson(text);
+  return {
+    storeName: parsed.storeName ?? null,
+    fiscalSign: parsed.fiscalSign ? String(parsed.fiscalSign).replace(/\D/g, "") : null,
+    kkmCode: parsed.kkmCode ? String(parsed.kkmCode).replace(/\D/g, "") : null,
+    sum: typeof parsed.sum === "number" ? parsed.sum : null,
+    items: Array.isArray(parsed.items)
+      ? parsed.items.map((it: any) => ({
+          name: String(it.name ?? "").trim(),
+          qty: typeof it.qty === "number" ? it.qty : parseFloat(it.qty) || 1,
+          price: typeof it.price === "number" ? it.price : it.price ? parseFloat(it.price) : null,
+          code: it.code ? String(it.code).replace(/\D/g, "") || null : null,
+        }))
+      : [],
+  };
+}
+
+function dataUrlToBase64(dataUrl: string): { mediaType: string; data: string } {
+  const m = dataUrl.match(/^data:([^;]+);base64,([\s\S]+)$/);
+  if (!m) throw new Error("Некорректный формат фото");
+  return { mediaType: m[1], data: m[2] };
+}
+
+// Основной способ — Claude (Anthropic), точнее читает мелкий шрифт на длинных чеках.
+async function callClaudeVision(images: string[]): Promise<VisionResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY не задан в переменных окружения");
+  }
+
+  const content: any[] = images.map((img) => {
+    const { mediaType, data } = dataUrlToBase64(img);
+    return { type: "image", source: { type: "base64", media_type: mediaType, data } };
+  });
+  content.push({ type: "text", text: PROMPT });
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 2000,
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Claude API вернул ошибку ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const text: string = (data?.content ?? [])
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
+  return parseVisionJson(text);
+}
+
+// Резервный способ — DeepSeek. Используется только если запрос к Claude не удался
+// (сбой сети, лимит и т.п.), чтобы не звать оба ИИ на каждый чек без необходимости.
 async function callDeepSeekVision(images: string[]): Promise<VisionResult> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -83,22 +149,23 @@ async function callDeepSeekVision(images: string[]): Promise<VisionResult> {
 
   const data = await res.json();
   const text: string = data?.choices?.[0]?.message?.content ?? "";
-  const parsed = extractJson(text);
+  return parseVisionJson(text);
+}
 
-  return {
-    storeName: parsed.storeName ?? null,
-    fiscalSign: parsed.fiscalSign ? String(parsed.fiscalSign).replace(/\D/g, "") : null,
-    kkmCode: parsed.kkmCode ? String(parsed.kkmCode).replace(/\D/g, "") : null,
-    sum: typeof parsed.sum === "number" ? parsed.sum : null,
-    items: Array.isArray(parsed.items)
-      ? parsed.items.map((it: any) => ({
-          name: String(it.name ?? "").trim(),
-          qty: typeof it.qty === "number" ? it.qty : parseFloat(it.qty) || 1,
-          price: typeof it.price === "number" ? it.price : it.price ? parseFloat(it.price) : null,
-          code: it.code ? String(it.code).replace(/\D/g, "") || null : null,
-        }))
-      : [],
-  };
+async function callVision(images: string[]): Promise<VisionResult> {
+  try {
+    return await callClaudeVision(images);
+  } catch (claudeErr) {
+    try {
+      return await callDeepSeekVision(images);
+    } catch (deepseekErr: any) {
+      throw new Error(
+        `Claude: ${String((claudeErr as any)?.message ?? claudeErr)}; DeepSeek: ${String(
+          deepseekErr?.message ?? deepseekErr
+        )}`
+      );
+    }
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -119,7 +186,7 @@ export async function POST(req: NextRequest) {
 
   let vision: VisionResult;
   try {
-    vision = await callDeepSeekVision(images);
+    vision = await callVision(images);
   } catch (e: any) {
     return NextResponse.json(
       { error: "Не удалось распознать фото: " + String(e?.message ?? e) },

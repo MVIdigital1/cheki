@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 type QrParams = {
   fiscalSign: string; // i
@@ -163,8 +163,13 @@ async function fetchOfdText(params: QrParams): Promise<string> {
     throw new Error("BROWSERLESS_TOKEN не задан в переменных окружения");
   }
 
+  // Сайт ОФД включает защиту от ботов (риск-скоринг по IP) и с обычных дата-центровых
+  // адресов Browserless стабильно отдаёт только пустую страницу-заглушку, не показывая
+  // сам чек. Резидентный прокси Browserless делает запрос похожим на обычного
+  // пользователя (домашний/мобильный IP) — никакую капчу мы при этом не решаем и не
+  // обходим, сайт просто не помечает такой трафик как подозрительный и не блокирует его.
   const browser = await playwright.connectOverCDP(
-    `wss://chrome.browserless.io?token=${browserlessToken}`
+    `wss://chrome.browserless.io?token=${browserlessToken}&proxy=residential&proxyCountry=kz&proxySticky=true&ignoreHTTPSErrors=true`
   );
 
   try {
@@ -176,11 +181,12 @@ async function fetchOfdText(params: QrParams): Promise<string> {
     // networkidle часто не наступает на этих сайтах (фоновые запросы/аналитика
     // не дают сети "успокоиться"), из-за чего page.goto стабильно падает по
     // таймауту 30с. domcontentloaded надёжнее — дальше ждём появления текста
-    // чека явным поллингом, а не фиксированной паузой.
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    // чека явным поллингом, а не фиксированной паузой. Через резидентный прокси
+    // загрузка идёт заметно дольше обычной, поэтому даём больше времени на попытку.
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 40000 });
 
     let text = "";
-    const deadline = Date.now() + 20000;
+    const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       text = await page.evaluate(() => document.body.innerText);
       const trimmed = text.trim();

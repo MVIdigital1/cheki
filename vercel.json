@@ -2,7 +2,7 @@
   "functions": {
     "app/api/parse-receipt/route.ts": {
       "memory": 1024,
-      "maxDuration": 60
+      "maxDuration": 90
     }
   }
 }

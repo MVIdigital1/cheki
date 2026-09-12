@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 90;
+export const maxDuration = 150;
 
 type QrParams = {
   fiscalSign: string; // i

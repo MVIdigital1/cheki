@@ -155,6 +155,57 @@ function parseItemsFromText(text: string): ParsedLine[] {
   return items;
 }
 
+function looksLikeRealContent(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.includes("FP ") ||
+    trimmed.includes("Fiscal receipt preview") ||
+    trimmed.includes("Порядковый номер чека") ||
+    trimmed.length > 400
+  );
+}
+
+// Один заход через резидентный прокси: открываем страницу и ждём, пока сайт
+// отрисует сам чек (а не просто форму-заглушку "Дата покупки / Время покупки / ...").
+async function fetchOfdTextOnce(
+  playwright: typeof import("playwright-core").chromium,
+  browserlessToken: string,
+  url: string,
+  gotoTimeoutMs: number,
+  pollDeadlineMs: number
+): Promise<string> {
+  // Сайт ОФД включает защиту от ботов (риск-скоринг по IP) и с обычных дата-центровых
+  // адресов Browserless стабильно отдаёт только пустую страницу-заглушку, не показывая
+  // сам чек. Резидентный прокси Browserless делает запрос похожим на обычного
+  // пользователя (домашний/мобильный IP) — никакую капчу мы при этом не решаем и не
+  // обходим, сайт просто не помечает такой трафик как подозрительный и не блокирует его.
+  // proxySticky не задаём намеренно: при повторной попытке (см. fetchOfdText) новая
+  // сессия должна получить новый IP из пула — часть IP пула тоже может быть в бане.
+  const browser = await playwright.connectOverCDP(
+    `wss://chrome.browserless.io?token=${browserlessToken}&proxy=residential&proxyCountry=kz&ignoreHTTPSErrors=true`
+  );
+
+  try {
+    const page = await browser.newPage();
+    // networkidle часто не наступает на этих сайтах (фоновые запросы/аналитика
+    // не дают сети "успокоиться"), из-за чего page.goto стабильно падает по
+    // таймауту. domcontentloaded надёжнее — дальше ждём появления текста чека
+    // явным поллингом, а не фиксированной паузой.
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: gotoTimeoutMs });
+
+    let text = "";
+    const deadline = Date.now() + pollDeadlineMs;
+    while (Date.now() < deadline) {
+      text = await page.evaluate(() => document.body.innerText);
+      if (looksLikeRealContent(text)) break;
+      await page.waitForTimeout(500);
+    }
+    return text;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function fetchOfdText(params: QrParams): Promise<string> {
   const { chromium: playwright } = await import("playwright-core");
 
@@ -163,50 +214,17 @@ async function fetchOfdText(params: QrParams): Promise<string> {
     throw new Error("BROWSERLESS_TOKEN не задан в переменных окружения");
   }
 
-  // Сайт ОФД включает защиту от ботов (риск-скоринг по IP) и с обычных дата-центровых
-  // адресов Browserless стабильно отдаёт только пустую страницу-заглушку, не показывая
-  // сам чек. Резидентный прокси Browserless делает запрос похожим на обычного
-  // пользователя (домашний/мобильный IP) — никакую капчу мы при этом не решаем и не
-  // обходим, сайт просто не помечает такой трафик как подозрительный и не блокирует его.
-  const browser = await playwright.connectOverCDP(
-    `wss://chrome.browserless.io?token=${browserlessToken}&proxy=residential&proxyCountry=kz&proxySticky=true&ignoreHTTPSErrors=true`
-  );
-
-  try {
-    const page = await browser.newPage();
-    // Открываем именно тот адрес ОФД, что зашит в QR чека — у разных
-    // операторов (Казахтелеком oofd.kz, Jusan Mobile kofd.kz и др.) разные домены.
-    const url = params.url;
-
-    // networkidle часто не наступает на этих сайтах (фоновые запросы/аналитика
-    // не дают сети "успокоиться"), из-за чего page.goto стабильно падает по
-    // таймауту 30с. domcontentloaded надёжнее — дальше ждём появления текста
-    // чека явным поллингом, а не фиксированной паузой. Через резидентный прокси
-    // загрузка идёт заметно дольше обычной, поэтому даём больше времени на попытку.
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 40000 });
-
-    let text = "";
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      text = await page.evaluate(() => document.body.innerText);
-      const trimmed = text.trim();
-      // Страница проверки чека сначала рендерит только форму-заглушку
-      // ("Дата покупки / Время покупки / ... / Проверить чек", ~226 символов) —
-      // это тоже >100 символов, из-за чего поллинг раньше завершался слишком рано,
-      // не дождавшись, пока Angular-приложение подставит и отрисует сам чек.
-      // Ждём явных маркеров реального содержимого чека, а не просто длины текста.
-      const hasRealContent =
-        trimmed.includes("FP ") ||
-        trimmed.includes("Fiscal receipt preview") ||
-        trimmed.includes("Порядковый номер чека") ||
-        trimmed.length > 400;
-      if (hasRealContent) break;
-      await page.waitForTimeout(500);
-    }
-    return text;
-  } finally {
-    await browser.close();
+  // Резидентные IP выдаются из общего пула Browserless, и часть из них тоже уже
+  // может быть заблокирована защитой ОФД от ботов. Поэтому делаем до 2 попыток
+  // с НОВОЙ сессией (= новым IP) каждая — если первая попытка попала на "плохой"
+  // IP и вернула только страницу-заглушку, вторая попытка может получить другой IP
+  // и пройти успешно. Бюджет подобран так, чтобы уложиться в maxDuration (90с).
+  let lastText = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    lastText = await fetchOfdTextOnce(playwright, browserlessToken, params.url, 20000, 20000);
+    if (looksLikeRealContent(lastText)) return lastText;
   }
+  return lastText;
 }
 
 export async function POST(req: NextRequest) {

@@ -71,6 +71,39 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+// Фото с телефона весят по несколько МБ — сервер (Vercel) отклоняет слишком большие
+// запросы, из-за чего отправка падала с "ошибкой сети". Сжимаем на устройстве перед
+// отправкой: уменьшаем до разумного размера и пережимаем в JPEG с меньшим качеством —
+// текст на чеке остаётся читаемым, а вес фото падает в несколько раз.
+async function compressImage(file: File, maxDimension = 1600, quality = 0.75): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const img = document.createElement("img");
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+
+  let { width, height } = img;
+  if (width > maxDimension || height > maxDimension) {
+    if (width > height) {
+      height = Math.round((height * maxDimension) / width);
+      width = maxDimension;
+    } else {
+      width = Math.round((width * maxDimension) / height);
+      height = maxDimension;
+    }
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
 export default function ScanPage() {
   const supabase = createClient();
   const [photos, setPhotos] = useState<string[]>([]);
@@ -86,7 +119,7 @@ export default function ScanPage() {
     e.target.value = "";
     if (!file) return;
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await compressImage(file);
       setPhotos((prev) => [...prev, dataUrl]);
     } catch {
       setError("Не удалось прочитать фото");

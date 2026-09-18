@@ -106,7 +106,7 @@ type Mode = "qr" | "photo";
 
 export default function ScanPage() {
   const supabase = createClient();
-  const [mode, setMode] = useState<Mode>("photo");
+  const [mode, setMode] = useState<Mode>("qr");
 
   // Общее для обоих способов
   const [loading, setLoading] = useState(false);

@@ -352,32 +352,17 @@ export default function ScanPage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center gap-4 p-4">
-        {showCapture && (
-          <div className="flex w-full max-w-sm overflow-hidden rounded-lg border border-slate-300">
-            <button
-              onClick={() => switchMode("qr")}
-              className={
-                "flex-1 py-2 text-sm font-medium " +
-                (mode === "qr" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
-              }
-            >
-              Сканировать QR
-            </button>
+        {showCapture && mode === "qr" && scanning && (
+          <div className="w-full max-w-sm space-y-3">
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <div id={containerId} className="w-full" />
+            </div>
             <button
               onClick={() => switchMode("photo")}
-              className={
-                "flex-1 py-2 text-sm font-medium " +
-                (mode === "photo" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
-              }
+              className="w-full rounded-lg border border-indigo-300 px-4 py-3 text-sm font-medium text-indigo-700"
             >
-              Сфотографировать чек
+              QR не сканируется — сфотографировать чек
             </button>
-          </div>
-        )}
-
-        {showCapture && mode === "qr" && scanning && (
-          <div className="w-full max-w-sm overflow-hidden rounded-xl border border-slate-200">
-            <div id={containerId} className="w-full" />
           </div>
         )}
 
@@ -391,6 +376,12 @@ export default function ScanPage() {
               className="hidden"
               onChange={handleFileChange}
             />
+            <button
+              onClick={() => switchMode("qr")}
+              className="text-sm text-indigo-600"
+            >
+              ← Сканировать QR
+            </button>
             <p className="text-sm text-slate-500">
               Сфотографируйте чек. Если он длинный — сделайте несколько фото по частям.
             </p>

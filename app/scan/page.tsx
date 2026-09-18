@@ -106,7 +106,7 @@ type Mode = "qr" | "photo";
 
 export default function ScanPage() {
   const supabase = createClient();
-  const [mode, setMode] = useState<Mode>("qr");
+  const [mode, setMode] = useState<Mode>("photo");
 
   // Общее для обоих способов
   const [loading, setLoading] = useState(false);
@@ -151,11 +151,15 @@ export default function ScanPage() {
       setLastQrRaw(decodedText);
       setManualQtyInput("");
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
       try {
         const res = await fetch("/api/parse-receipt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ qrRaw: decodedText }),
+          signal: controller.signal,
         });
         const data = await res.json();
         if (!res.ok) {
@@ -165,8 +169,11 @@ export default function ScanPage() {
           setPhone(formatPhoneInput(data.customerPhone || ""));
         }
       } catch (e) {
-        setError("Ошибка сети при обращении к серверу");
+        setError(
+          "Сайт ОФД слишком долго не отвечает (сеть/капча). Попробуйте ещё раз или сфотографируйте чек."
+        );
       } finally {
+        clearTimeout(timeoutId);
         setLoading(false);
       }
     },

@@ -361,7 +361,7 @@ export default function ScanPage() {
               onClick={() => switchMode("photo")}
               className="w-full rounded-lg border border-indigo-300 px-4 py-3 text-sm font-medium text-indigo-700"
             >
-              QR не сканируется — сфотографировать чек
+              Если QR не сканирует — сфоткать чек
             </button>
           </div>
         )}

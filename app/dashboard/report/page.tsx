@@ -40,11 +40,14 @@ export default async function ReportPage({
     new Set((storeRows ?? []).map((r: any) => r.store_name as string))
   ).sort();
 
+  const dayKeyOf = (d: Date) => d.toISOString().slice(0, 10);
+  const dayLabelOf = (d: Date) => d.toLocaleDateString("ru-RU");
+
   // Продано по каждой позиции акции.
   let soldQuery = supabase
     .from("receipt_items")
     .select(
-      "qty, promo_product_id, promo_products(name), receipts!inner(promoter_id, store_name, created_at)"
+      "qty, promo_product_id, promo_products(name), receipts!inner(promoter_id, store_name, created_at, fiscal_time)"
     )
     .not("promo_product_id", "is", null);
   if (!showAll && user) {
@@ -62,6 +65,7 @@ export default async function ReportPage({
   const { data: soldItems } = await soldQuery;
 
   const soldByProduct = new Map<string, { name: string; qty: number }>();
+  const soldByDay = new Map<string, { label: string; qty: number }>();
   for (const it of soldItems ?? []) {
     const pp: any = Array.isArray((it as any).promo_products)
       ? (it as any).promo_products[0]
@@ -73,6 +77,21 @@ export default async function ReportPage({
       existing.qty += Number(it.qty);
     } else {
       soldByProduct.set(id, { name, qty: Number(it.qty) });
+    }
+
+    const receiptRow: any = Array.isArray((it as any).receipts)
+      ? (it as any).receipts[0]
+      : (it as any).receipts;
+    const dateVal = receiptRow?.fiscal_time || receiptRow?.created_at;
+    if (dateVal) {
+      const d = new Date(dateVal);
+      const key = dayKeyOf(d);
+      const existingDay = soldByDay.get(key);
+      if (existingDay) {
+        existingDay.qty += Number(it.qty);
+      } else {
+        soldByDay.set(key, { label: dayLabelOf(d), qty: Number(it.qty) });
+      }
     }
   }
 
@@ -128,9 +147,13 @@ export default async function ReportPage({
     const group = Array.isArray(b.promo_groups) ? b.promo_groups[0] : b.promo_groups;
     const promoterRow = Array.isArray(b.promoters) ? b.promoters[0] : b.promoters;
     const dateVal = receipt?.fiscal_time || receipt?.created_at;
+    const d = dateVal ? new Date(dateVal) : null;
     return {
       n: idx + 1,
-      date: dateVal ? new Date(dateVal).toLocaleString("ru-RU") : "—",
+      date: d ? d.toLocaleString("ru-RU") : "—",
+      dayKey: d ? dayKeyOf(d) : "—",
+      dayLabel: d ? dayLabelOf(d) : "—",
+      timeLabel: d ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "—",
       store: receipt?.store_name || "—",
       receiptNo: receipt?.receipt_number || receipt?.fiscal_sign || "—",
       phone: receipt?.customer_phone || "—",
@@ -139,6 +162,51 @@ export default async function ReportPage({
       promoterName: promoterRow?.full_name || "",
     };
   });
+
+  // Группировка детализации блоками по датам: по каждой дате — сколько продано
+  // акционных товаров и сколько бонусов выдано.
+  type DayBlock = {
+    dayKey: string;
+    dayLabel: string;
+    rows: typeof detailRows;
+    bonusUnits: number;
+    bonusEvents: number;
+    soldQty: number;
+  };
+  const dayBlockMap = new Map<string, DayBlock>();
+  for (const r of detailRows) {
+    let block = dayBlockMap.get(r.dayKey);
+    if (!block) {
+      block = {
+        dayKey: r.dayKey,
+        dayLabel: r.dayLabel,
+        rows: [],
+        bonusUnits: 0,
+        bonusEvents: 0,
+        soldQty: soldByDay.get(r.dayKey)?.qty ?? 0,
+      };
+      dayBlockMap.set(r.dayKey, block);
+    }
+    block.rows.push(r);
+    block.bonusUnits += Number(r.units) || 0;
+    block.bonusEvents += 1;
+  }
+  // Даты, где что-то продано, но бонус не выдавался — тоже показываем блоком.
+  for (const [key, sold] of soldByDay.entries()) {
+    if (!dayBlockMap.has(key)) {
+      dayBlockMap.set(key, {
+        dayKey: key,
+        dayLabel: sold.label,
+        rows: [],
+        bonusUnits: 0,
+        bonusEvents: 0,
+        soldQty: sold.qty,
+      });
+    }
+  }
+  const dayBlocks = Array.from(dayBlockMap.values()).sort((a, b) =>
+    a.dayKey < b.dayKey ? -1 : a.dayKey > b.dayKey ? 1 : 0
+  );
 
   const today = new Date().toLocaleDateString("ru-RU");
   const periodLabel =
@@ -312,41 +380,55 @@ export default async function ReportPage({
         </table>
 
         <h2 className="mb-2 text-sm font-medium text-slate-600">
-          Детализация по чекам с бонусом
+          Детализация по чекам с бонусом — по датам
         </h2>
-        <table className="mb-6 w-full border-collapse text-xs">
-          <thead>
-            <tr className="border-b border-slate-300 text-left">
-              <th className="py-2 pr-2">№</th>
-              <th className="py-2 pr-2">Дата</th>
-              <th className="py-2 pr-2">Магазин</th>
-              <th className="py-2 pr-2">№ чека</th>
-              <th className="py-2 pr-2">Телефон</th>
-              {showAll && <th className="py-2 pr-2">Промоутер</th>}
-              <th className="py-2 text-right">Бонусов, шт</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detailRows.map((r) => (
-              <tr key={r.n} className="border-b border-slate-100">
-                <td className="py-1.5 pr-2">{r.n}</td>
-                <td className="py-1.5 pr-2">{r.date}</td>
-                <td className="py-1.5 pr-2">{r.store}</td>
-                <td className="py-1.5 pr-2">{r.receiptNo}</td>
-                <td className="py-1.5 pr-2">{r.phone}</td>
-                {showAll && <td className="py-1.5 pr-2">{r.promoterName}</td>}
-                <td className="py-1.5 text-right">{r.units}</td>
-              </tr>
-            ))}
-            {detailRows.length === 0 && (
-              <tr>
-                <td colSpan={showAll ? 7 : 6} className="py-3 text-center text-slate-400">
-                  Пока нет данных
-                </td>
-              </tr>
+        {dayBlocks.length === 0 && (
+          <p className="mb-6 text-center text-sm text-slate-400">Пока нет данных</p>
+        )}
+        {dayBlocks.map((block) => (
+          <div key={block.dayKey} className="mb-5">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm">
+              <span className="font-semibold text-slate-700">{block.dayLabel}</span>
+              <span className="text-slate-600">
+                Продано полотенец: <b>{block.soldQty}</b> шт · Выдано бонусов:{" "}
+                <b>{block.bonusUnits}</b> шт ({block.bonusEvents}{" "}
+                {block.bonusEvents === 1 ? "чек" : "чеков"})
+              </span>
+            </div>
+            {block.rows.length > 0 ? (
+              <table className="mb-2 w-full border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-300 text-left">
+                    <th className="py-2 pr-2">№</th>
+                    <th className="py-2 pr-2">Время</th>
+                    <th className="py-2 pr-2">Магазин</th>
+                    <th className="py-2 pr-2">№ чека</th>
+                    <th className="py-2 pr-2">Телефон</th>
+                    {showAll && <th className="py-2 pr-2">Промоутер</th>}
+                    <th className="py-2 text-right">Бонусов, шт</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((r) => (
+                    <tr key={r.n} className="border-b border-slate-100">
+                      <td className="py-1.5 pr-2">{r.n}</td>
+                      <td className="py-1.5 pr-2">{r.timeLabel}</td>
+                      <td className="py-1.5 pr-2">{r.store}</td>
+                      <td className="py-1.5 pr-2">{r.receiptNo}</td>
+                      <td className="py-1.5 pr-2">{r.phone}</td>
+                      {showAll && <td className="py-1.5 pr-2">{r.promoterName}</td>}
+                      <td className="py-1.5 text-right">{r.units}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="mb-2 pl-1 text-xs text-slate-400">
+                Бонусов в этот день не выдавалось.
+              </p>
             )}
-          </tbody>
-        </table>
+          </div>
+        ))}
 
         <div className="mt-10 grid grid-cols-2 gap-8 text-sm">
           <div>
